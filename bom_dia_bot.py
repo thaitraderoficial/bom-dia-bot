@@ -14,6 +14,7 @@ Variáveis de ambiente necessárias (Secrets no GitHub):
 """
 
 import os
+import re
 import sys
 import requests
 from datetime import datetime, timezone, timedelta
@@ -201,17 +202,19 @@ def chamar_claude(system_prompt, user_content, max_tokens, usar_busca_web=True):
 
 def limpar_resposta(texto):
     """Proteção final, no código (não depende da Claude obedecer o prompt):
-    - Corta tudo que vier ANTES da palavra "PANORAMA", garantindo que nenhum
-      comentário de processo escape no início da mensagem.
+    - Corta tudo que vier ANTES do título real "PANORAMA | data", identificado pelo
+      padrão "PANORAMA" seguido de "|" — não corta em qualquer menção solta da
+      palavra "panorama" (ex: dentro de uma frase de narração tipo "aqui está o
+      panorama completo"), só no título formatado de verdade.
     - Remove parágrafos curtos que pareçam comentário sobre o processo de busca,
       mesmo que apareçam no meio ou no fim do texto.
     """
     if not texto:
         return texto
 
-    idx = texto.upper().find("PANORAMA")
-    if idx > 0:
-        texto = texto[idx:]
+    match_titulo = re.search(r"\*?PANORAMA\s*\|", texto, re.IGNORECASE)
+    if match_titulo:
+        texto = texto[match_titulo.start():]
 
     frases_proibidas = [
         "busquei", "coletei", "puxei", "verifiquei", "pesquisei", "consultei",
@@ -219,16 +222,18 @@ def limpar_resposta(texto):
         "informações verificadas", "segue o panorama", "segue abaixo",
         "aqui está", "aqui estão", "dados coletados", "dados verificados",
         "espero que", "qualquer dúvida", "fico à disposição", "segundo a ia",
-        "com base nas informações",
+        "com base nas informações", "com base em", "várias fontes",
+        "diversas fontes", "múltiplas fontes", "panorama completo",
     ]
 
     paragrafos = texto.split("\n\n")
     limpos = []
-    for p in paragrafos:
+    for i, p in enumerate(paragrafos):
         p_normalizado = p.strip().lower()
         eh_curto = len(p_normalizado) < 200
+        # Nunca descarta o primeiro parágrafo (é o título real, já garantido acima)
         tem_frase_proibida = any(f in p_normalizado for f in frases_proibidas)
-        if eh_curto and tem_frase_proibida:
+        if i > 0 and eh_curto and tem_frase_proibida:
             continue  # descarta esse parágrafo de narração
         limpos.append(p)
 
