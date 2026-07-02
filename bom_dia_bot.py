@@ -32,46 +32,64 @@ REGRAS OBRIGATÓRIAS
 - Nunca invente dados.
 - Nunca complete informações por inferência.
 - Se alguma fonte falhar ou o dado não puder ser confirmado, escreva apenas: "Dado indisponível no momento."
-- Nunca escreva frases como "Com base nas informações verificadas…", "Aqui está a seção…",
-  "Segundo a IA…", "Segue o panorama…" ou qualquer variação parecida. Entregue apenas o texto final.
 - Utilize preferencialmente fontes confiáveis como Reuters, Bloomberg, CNBC, Wall Street Journal,
   Financial Times, TradingView, CoinGecko, CoinMarketCap, CME, Investing e fontes oficiais dos
   indicadores econômicos.
 
-FORMATAÇÃO (siga exatamente esta estrutura, em texto simples formatado para Telegram)
+REGRAS DE APRESENTAÇÃO (OBRIGATÓRIAS — LEIA COM MÁXIMA ATENÇÃO)
+Sua resposta será copiada e colada, palavra por palavra, direto para um canal público com
+milhares de leitores. Qualquer frase que não seja um dado de mercado ou o texto da manchete
+quebra a credibilidade do canal. Isso vale para QUALQUER parte da resposta: início, meio ou fim.
+- Exiba apenas a resposta final. Nunca mostre o processo de busca, nunca comente sobre as fontes
+  que usou, nunca resuma o que fez, nunca narre o que está fazendo.
+- PROIBIDO usar, em qualquer parte da resposta, frases como:
+  "Vou buscar…", "Estou pesquisando…", "Agora vou consultar…", "Com todos os dados coletados…",
+  "Após verificar…", "Pesquisando fontes…", "Segue abaixo…", "Aqui está…", "Segue o panorama…",
+  "Dados verificados em múltiplas fontes confiáveis…", "Com base nas informações verificadas…",
+  "Todos os dados foram confirmados…", "Segundo a IA…", ou qualquer frase que mencione o ato de
+  verificar, buscar, confirmar, pesquisar ou coletar informação — mesmo de forma indireta.
+- Nunca explique como chegou às informações. Nunca exponha seu raciocínio interno. Nunca faça um
+  comentário de abertura ou de fechamento sobre o processo (ex: "esses foram os dados de hoje").
+- A resposta deve começar diretamente pelo título "*PANORAMA | DD/MM/AAAA - HH:MM*" e terminar
+  diretamente no último caractere do resumo da manchete — sem nenhuma linha de abertura ou
+  fechamento além disso.
+- Antes de responder, releia mentalmente o texto que você vai entregar e remova qualquer frase
+  que descreva o que você fez, mesmo que pareça inofensiva.
 
-PANORAMA | DD/MM/AAAA - HH:MM
+FORMATAÇÃO (siga exatamente esta estrutura — é a formatação Markdown do Telegram)
+- O título do topo vai em negrito: *PANORAMA | DD/MM/AAAA - HH:MM*
+- Os títulos de cada seção vão em negrito: *₿ MERCADO CRIPTO*, *🌍 MACRO*, *⚡ ENERGIA*,
+  *🪙 METAIS*, *📰 MANCHETE DO DIA*.
+- Use emojis apenas nesses títulos de seção, nunca em cada ativo individual. Para cada ativo,
+  indique só a direção com 🟢 (alta) ou 🔴 (queda) depois da variação percentual.
+- Entre a maioria das seções, deixe UMA linha em branco. Mas entre a seção de METAIS e a seção
+  de MANCHETE DO DIA, deixe DUAS linhas em branco — a manchete é uma notícia, não um dado de
+  cotação, e merece uma separação visual maior do resto.
+- A ordem das seções é sempre: MERCADO CRIPTO primeiro, depois MACRO, ENERGIA, METAIS e por
+  último MANCHETE DO DIA.
 
-*₿ MERCADO CRIPTO*
-Para cada ativo (BTC, ETH, SOL, XRP, HYPE, TRX), mostre preço atual e variação nas últimas 24h.
-Use 🟢 quando a variação for positiva e 🔴 quando for negativa. Não use emoji de moeda antes do
-ticker — apenas o nome do ativo, o preço e a seta de direção.
+SEÇÃO MERCADO CRIPTO
+Para cada ativo (BTC, ETH, SOL, XRP, HYPE, TRX), mostre preço atual e variação nas últimas 24h,
+com 🟢 ou 🔴 conforme a direção.
 
-*🌍 MACRO*
-S&P 500 (Futuros): valor + variação
-Nasdaq (Futuros): valor + variação
-Dólar (DXY): valor + variação
-
-*⚡️ ENERGIA*
-Brent: valor + variação
-WTI: valor + variação
-Gás Natural: valor + variação
-
-*🪙 METAIS*
-Ouro: valor + variação
-Cobre: valor + variação
-
-*📰 MANCHETE DO DIA*
+SEÇÃO MANCHETE DO DIA
 Escolha apenas o acontecimento mais importante das últimas 24 horas, priorizando nesta ordem:
 1. Dados macroeconômicos (Payroll, CPI, PPI, PIB, FOMC, Fed, BCE, etc.)
 2. Geopolítica relevante
 3. Economia global
 4. Fluxo institucional
 5. Mercado de criptomoedas
-Escreva um título em negrito, depois um resumo entre 4 e 8 linhas explicando: o que aconteceu,
-por que aconteceu, qual o impacto esperado para os mercados, e possíveis reflexos para o mercado
-cripto quando houver relação. Texto técnico, direto, fácil de entender, sem frases longas, sem
-repetir informação, sem copiar matérias integralmente.
+Escreva um título em negrito (com asteriscos), depois um resumo entre 4 e 8 linhas.
+- NUNCA escreva o resumo como um bloco de texto corrido. Divida em parágrafos curtos (1 a 3
+  linhas cada), com uma linha em branco entre eles, toda vez que o assunto mudar dentro do
+  resumo — por exemplo: um parágrafo sobre o que aconteceu, linha em branco, outro parágrafo
+  sobre o impacto esperado (ex: no dólar, nos juros), linha em branco, e se houver relação, um
+  último parágrafo curto sobre o reflexo no mercado cripto.
+- Se for citar uma frase literal de alguém (ex: um dirigente do Fed, um comunicado oficial),
+  coloque a citação em itálico, usando um único sublinhado de cada lado, assim: _"texto citado
+  aqui"_. Use isso só quando houver uma citação real e relevante — não force citações.
+- Texto técnico, direto, fácil de entender, frases curtas, sem repetir informação, sem copiar
+  matérias integralmente.
 
 IMPORTANTE
 - Se existir um dado econômico importante divulgado no dia (Payroll, CPI, PPI, decisão de juros
@@ -85,32 +103,12 @@ REVISÃO FINAL (etapa obrigatória antes de responder)
 Antes de entregar a resposta, revise todas as datas, números e horários. Verifique se todas as
 informações pertencem ao dia atual. Caso encontre qualquer dado desatualizado ou não
 verificável, descarte-o, faça uma nova busca, ou substitua por "Dado indisponível no momento."
-Nunca publique conteúdo de dias anteriores.
+Nunca publique conteúdo de dias anteriores. Revise também se não sobrou nenhuma frase sobre o
+processo de busca (releia as REGRAS DE APRESENTAÇÃO acima antes de finalizar).
 
-REGRAS DE APRESENTAÇÃO (OBRIGATÓRIAS)
-- Exiba apenas a resposta final.
-- Nunca mostre o processo de busca.
-- Nunca escreva frases como: "Vou buscar…", "Estou pesquisando…", "Agora vou consultar…",
-  "Com todos os dados coletados…", "Após verificar…", "Pesquisando fontes…", "Segue abaixo…",
-  "Aqui está…", ou qualquer variação parecida.
-- Nunca explique como chegou às informações.
-- Nunca exponha seu raciocínio interno.
-- A resposta deve começar diretamente pelo título "PANORAMA | DD/MM/AAAA - HH:MM", sem nenhum
-  texto antes dele.
+EXEMPLO DE FORMATAÇÃO EXATA A SEGUIR (não copie os números, são só ilustrativos):
 
-PADRÃO VISUAL
-- Visual limpo e profissional.
-- Use emojis apenas nos títulos das seções: ₿ MERCADO CRIPTO, 🌍 MACRO, ⚡ ENERGIA, 🪙 METAIS,
-  📰 MANCHETE DO DIA.
-- Os títulos das seções devem vir em negrito, usando asteriscos simples ao redor (formatação
-  Markdown do Telegram), exatamente como no exemplo abaixo — por exemplo "*🌍 MACRO*".
-- Não utilize emojis em cada ativo individual (nem de bandeira, nem de moeda). Apenas indique a
-  direção com 🟢 para alta ou 🔴 para queda, depois da variação percentual.
-- A ordem das seções é sempre: MERCADO CRIPTO primeiro (é a informação mais importante para o
-  público), depois MACRO, ENERGIA, METAIS e por último MANCHETE DO DIA.
-- Exemplo de formatação exata a seguir:
-
-PANORAMA | DD/MM/AAAA - HH:MM
+*PANORAMA | DD/MM/AAAA - HH:MM*
 
 *₿ MERCADO CRIPTO*
 BTC: US$ 61.499 🟢 +2,26%
@@ -134,9 +132,21 @@ Gás Natural: US$ 3,18 🔴 -1,29%
 Ouro: US$ 4.110,29 🟢 +1,96%
 Cobre: US$ 6,11 🔴 -1,33%
 
+
 *📰 MANCHETE DO DIA*
-[título em negrito]
-[resumo de 4 a 8 linhas]
+*Fed sinaliza pausa nos cortes de juros após dado de inflação acima do esperado*
+
+O CPI de junho veio em 3,2% ao ano, acima da projeção de 3,0%. Isso reduz a probabilidade de
+um novo corte de juros na próxima reunião do FOMC.
+
+Em comunicado, um dos dirigentes do Fed afirmou que _"ainda é cedo para declarar vitória contra
+a inflação"_.
+
+Com juros mais altos por mais tempo, o dólar tende a se fortalecer no curto prazo, pressionando
+ativos de risco globalmente.
+
+No mercado cripto, o movimento costuma gerar aversão a risco de curto prazo, com pressão vendedora
+em BTC e altcoins até a poeira baixar.
 
 Responda apenas com o texto final do panorama, pronto para ser enviado, sem nenhum comentário
 antes ou depois, e sem repetir o rótulo "Exemplo" ou qualquer marcação — apenas o conteúdo real.
@@ -210,56 +220,6 @@ def get_panorama():
 
 
 # ---------------------------------------------------------------------------
-# Imagem real da manchete (só fontes de domínio público / uso livre)
-# ---------------------------------------------------------------------------
-
-IMAGE_SYSTEM_PROMPT = """\
-Você busca UMA foto jornalística real (nunca gerada por IA, nunca ilustração) relacionada ao
-tema da manchete de mercado informada pelo usuário.
-
-REGRAS OBRIGATÓRIAS
-- A imagem tem que ser uma fotografia real, de uma fonte com licença de uso livre ou domínio
-  público. Priorize, nesta ordem: Wikimedia Commons (commons.wikimedia.org), arquivos oficiais de
-  governos (ex: whitehouse.gov, flickr de órgãos oficiais), e bancos de imagem de uso livre para
-  fins editoriais.
-- Nunca sugira imagens de agências pagas (Reuters, AP, Getty, AFP, Bloomberg) — elas não podem
-  ser redistribuídas livremente.
-- A imagem precisa ser claramente relacionada ao assunto da manchete (pessoa, local ou evento
-  citado).
-- Se não encontrar nenhuma imagem real adequada e com licença livre, responda exatamente:
-  SEM_IMAGEM
-- Se encontrar, responda APENAS com a URL direta da imagem (terminando em .jpg, .png, .jpeg ou
-  .webp sempre que possível), sem nenhum texto antes ou depois, sem explicação.
-"""
-
-
-def get_headline_image_url(contexto_manchete):
-    if not contexto_manchete:
-        return None
-    try:
-        user_content = (
-            "Encontre uma foto real relacionada a esta manchete de mercado:\n\n"
-            f"{contexto_manchete}\n\n"
-            "Responda só com a URL da imagem, ou SEM_IMAGEM."
-        )
-        resultado = chamar_claude(IMAGE_SYSTEM_PROMPT, user_content, max_tokens=300)
-        resultado = (resultado or "").strip()
-        if not resultado or resultado == "SEM_IMAGEM" or not resultado.startswith("http"):
-            return None
-        return resultado.split()[0]  # garante que não veio nenhum texto extra junto
-    except Exception:
-        return None
-
-
-def extrair_contexto_manchete(texto_panorama):
-    marcador = "MANCHETE DO DIA"
-    idx = texto_panorama.find(marcador)
-    if idx == -1:
-        return texto_panorama[-600:]
-    return texto_panorama[idx + len(marcador):].strip()
-
-
-# ---------------------------------------------------------------------------
 # Envio para o Telegram
 # ---------------------------------------------------------------------------
 
@@ -285,41 +245,7 @@ def enviar_telegram(texto):
     print("Mensagem enviada com sucesso!")
 
 
-def enviar_foto_telegram(image_url):
-    """Tenta mandar a foto da manchete. Se falhar por qualquer motivo, só avisa
-    no log e segue o fluxo — a mensagem de texto principal não pode ser bloqueada
-    por causa da imagem."""
-    token = os.environ.get("TELEGRAM_BOT_TOKEN")
-    chat_id = os.environ.get("TELEGRAM_CHAT_ID")
-    if not token or not chat_id or not image_url:
-        return
-
-    try:
-        url = f"https://api.telegram.org/bot{token}/sendPhoto"
-        payload = {
-            "chat_id": chat_id,
-            "photo": image_url,
-            "caption": "📰 Manchete do dia",
-        }
-        r = requests.post(url, data=payload, timeout=TIMEOUT_TELEGRAM)
-        if not r.ok:
-            print("Aviso: não foi possível enviar a foto da manchete:", r.text)
-        else:
-            print("Foto da manchete enviada com sucesso!")
-    except Exception as e:
-        print("Aviso: erro ao tentar enviar a foto da manchete:", e)
-
-
 if __name__ == "__main__":
     mensagem = get_panorama()
     print(mensagem)  # aparece nos logs do GitHub Actions, útil para debug
-
-    contexto_manchete = extrair_contexto_manchete(mensagem)
-    imagem_url = get_headline_image_url(contexto_manchete)
-    if imagem_url:
-        print("Imagem encontrada para a manchete:", imagem_url)
-        enviar_foto_telegram(imagem_url)
-    else:
-        print("Nenhuma imagem adequada encontrada — enviando só o texto.")
-
     enviar_telegram(mensagem)
