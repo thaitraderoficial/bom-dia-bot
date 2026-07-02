@@ -58,9 +58,8 @@ PANORAMA | DD/MM/AAAA - HH:MM
 
 ₿ MERCADO CRIPTO
 Para cada ativo (BTC, ETH, SOL, XRP, HYPE, TRX), mostre preço atual e variação nas últimas 24h.
-Use 🟢 quando a variação for positiva e 🔴 quando for negativa.
-Exemplo: 🟠 BTC: US$ 61.740,00 🟢 +2,67%
-(use os emojis 🟠 BTC, 🔵 ETH, 🟣 SOL, ⚫️ XRP, 🟢 HYPE, 🔴 TRX antes de cada ticker)
+Use 🟢 quando a variação for positiva e 🔴 quando for negativa. Não use emoji de moeda antes do
+ticker — apenas o nome do ativo, o preço e a seta de direção.
 
 📰 MANCHETE DO DIA
 Escolha apenas o acontecimento mais importante das últimas 24 horas, priorizando nesta ordem:
@@ -88,8 +87,55 @@ informações pertencem ao dia atual. Caso encontre qualquer dado desatualizado 
 verificável, descarte-o, faça uma nova busca, ou substitua por "Dado indisponível no momento."
 Nunca publique conteúdo de dias anteriores.
 
+REGRAS DE APRESENTAÇÃO (OBRIGATÓRIAS)
+- Exiba apenas a resposta final.
+- Nunca mostre o processo de busca.
+- Nunca escreva frases como: "Vou buscar…", "Estou pesquisando…", "Agora vou consultar…",
+  "Com todos os dados coletados…", "Após verificar…", "Pesquisando fontes…", "Segue abaixo…",
+  "Aqui está…", ou qualquer variação parecida.
+- Nunca explique como chegou às informações.
+- Nunca exponha seu raciocínio interno.
+- A resposta deve começar diretamente pelo título "PANORAMA | DD/MM/AAAA - HH:MM", sem nenhum
+  texto antes dele.
+
+PADRÃO VISUAL
+- Visual limpo e profissional.
+- Use emojis apenas nos títulos das seções: 🌍 MACRO, ⚡ ENERGIA, 🪙 METAIS, ₿ MERCADO CRIPTO,
+  📰 MANCHETE DO DIA.
+- Não utilize emojis em cada ativo individual (nem de bandeira, nem de moeda). Apenas indique a
+  direção com 🟢 para alta ou 🔴 para queda, depois da variação percentual.
+- Exemplo de formatação exata a seguir:
+
+PANORAMA | DD/MM/AAAA - HH:MM
+
+🌍 MACRO
+S&P 500 (Futuros): 7.508 pts 🟢 +0,12%
+Nasdaq (Futuros): 26.175 pts 🔴 -0,15%
+Dólar (DXY): 100,74 🔴 -0,65%
+
+⚡ ENERGIA
+Brent: US$ 70,90 🔴 -2,00%
+WTI: US$ 68,25 🔴 -0,48%
+Gás Natural: US$ 3,18 🔴 -1,29%
+
+🪙 METAIS
+Ouro: US$ 4.110,29 🟢 +1,96%
+Cobre: US$ 6,11 🔴 -1,33%
+
+₿ MERCADO CRIPTO
+BTC: US$ 61.499 🟢 +2,26%
+ETH: US$ 1.692 🟢 +4,60%
+SOL: US$ 80,71 🟢 +4,49%
+XRP: US$ 1,09 🟢 +3,15%
+HYPE: US$ 64,87 🟢 +4,00%
+TRX: US$ 0,32 🟢 +0,14%
+
+📰 MANCHETE DO DIA
+[título em negrito]
+[resumo de 4 a 8 linhas]
+
 Responda apenas com o texto final do panorama, pronto para ser enviado, sem nenhum comentário
-antes ou depois.
+antes ou depois, e sem repetir o rótulo "Exemplo" ou qualquer marcação — apenas o conteúdo real.
 """
 
 
@@ -129,8 +175,26 @@ def get_panorama():
         r.raise_for_status()
         data = r.json()
 
-        textos = [bloco["text"] for bloco in data.get("content", []) if bloco.get("type") == "text"]
+        blocos = data.get("content", [])
+
+        # Proteção extra: pega só os blocos de texto que vêm DEPOIS da última
+        # busca na web, ignorando qualquer texto que a Claude tenha escrito
+        # entre uma busca e outra (evita narrar o processo, tipo "vou buscar...").
+        ultimo_indice_ferramenta = -1
+        for i, bloco in enumerate(blocos):
+            if bloco.get("type") in ("tool_use", "server_tool_use", "web_search_tool_result"):
+                ultimo_indice_ferramenta = i
+
+        blocos_finais = blocos[ultimo_indice_ferramenta + 1:]
+        textos = [bloco["text"] for bloco in blocos_finais if bloco.get("type") == "text"]
         resultado = "\n".join(textos).strip()
+
+        # Se por algum motivo não sobrou texto após o filtro, usa todos os blocos de texto
+        # como último recurso (melhor mostrar algo do que travar o envio).
+        if not resultado:
+            todos_textos = [bloco["text"] for bloco in blocos if bloco.get("type") == "text"]
+            resultado = "\n".join(todos_textos).strip()
+
         return resultado or "Dado indisponível no momento."
     except Exception as e:
         return f"Não foi possível gerar o panorama de hoje. Erro técnico: {e}"
