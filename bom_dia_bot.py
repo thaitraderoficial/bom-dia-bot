@@ -1,10 +1,11 @@
 """
-Bom Dia Ninjas - resumo macro diário enviado automaticamente para o Telegram.
+Panorama Diário (ThaiTraderOficial) - resumo de mercado enviado automaticamente
+para o Telegram, gerado pela Claude com busca em tempo real na web.
 
-Fontes de dados:
-- Cripto: CoinGecko (gratuito, sem chave)
-- Futuros, câmbio, energia e metais: Stooq (gratuito, sem chave)
-- Curadoria e resumo de notícias macro: API da Anthropic (Claude), usando busca na web
+Por que assim: fontes gratuitas de cotação (tipo Stooq) falham com frequência e
+não garantem dado do dia certo. Deixamos a Claude buscar e verificar tudo (preços,
+variações e notícias) direto de fontes confiáveis, seguindo regras rígidas de
+precisão, atualidade e formatação.
 
 Variáveis de ambiente necessárias (Secrets no GitHub):
 - TELEGRAM_BOT_TOKEN
@@ -17,144 +18,89 @@ import sys
 import requests
 from datetime import datetime, timezone, timedelta
 
-TIMEOUT = 20
+TIMEOUT_TELEGRAM = 20
+TIMEOUT_ANTHROPIC = 120
 
 
-# ---------------------------------------------------------------------------
-# Cripto (CoinGecko)
-# ---------------------------------------------------------------------------
+PANORAMA_SYSTEM_PROMPT = """\
+Você é o responsável por gerar o PANORAMA DIÁRIO da ThaiTraderOficial.
+Sua prioridade é precisão, objetividade e atualização em tempo real.
 
-CRYPTO_IDS = {
-    "bitcoin": ("🟠", "BTC"),
-    "ethereum": ("🔵", "ETH"),
-    "solana": ("🟣", "SOL"),
-    "ripple": ("⚫", "XRP"),
-    "hyperliquid": ("🟢", "HYPE"),
-    "tron": ("🔴", "TRX"),
-}
-
-
-def get_crypto():
-    try:
-        ids = ",".join(CRYPTO_IDS.keys())
-        url = (
-            f"https://api.coingecko.com/api/v3/simple/price"
-            f"?ids={ids}&vs_currencies=usd&include_24hr_change=true"
-        )
-        r = requests.get(url, timeout=TIMEOUT)
-        r.raise_for_status()
-        data = r.json()
-
-        linhas = []
-        for coin_id, (emoji, ticker) in CRYPTO_IDS.items():
-            if coin_id not in data:
-                linhas.append(f"{emoji} {ticker}: dado indisponível")
-                continue
-            preco = data[coin_id]["usd"]
-            variacao = data[coin_id].get("usd_24h_change", 0)
-            seta = "🔺" if variacao >= 0 else "🔻"
-            linhas.append(
-                f"{emoji} {ticker}: US$ {preco:,.2f}  {seta} {variacao:+.2f}% (24h)"
-            )
-        return "\n".join(linhas)
-    except Exception as e:
-        return f"Não foi possível obter os dados de cripto ({e})"
-
-
-# ---------------------------------------------------------------------------
-# Stooq (futuros, câmbio, energia, metais)
-# ---------------------------------------------------------------------------
-
-def get_stooq_quote(symbol):
-    """Retorna (close, variacao_pct) ou None se falhar."""
-    try:
-        url = f"https://stooq.com/q/l/?s={symbol}&f=sd2t2ohlcv&h&e=csv"
-        r = requests.get(url, timeout=TIMEOUT)
-        r.raise_for_status()
-        lines = r.text.strip().splitlines()
-        if len(lines) < 2:
-            return None
-        header = lines[0].split(",")
-        values = lines[1].split(",")
-        row = dict(zip(header, values))
-        close = float(row["Close"])
-        open_ = float(row["Open"])
-        if close == 0 or row["Close"] in ("N/D", ""):
-            return None
-        variacao = ((close - open_) / open_ * 100) if open_ else 0
-        return close, variacao
-    except Exception:
-        return None
-
-
-def format_linha(emoji, nome, symbol, casas=2, prefixo=""):
-    resultado = get_stooq_quote(symbol)
-    if resultado is None:
-        return f"{emoji} {nome}: Mercado fechado ou dado indisponível"
-    close, variacao = resultado
-    seta = "🔺" if variacao >= 0 else "🔻"
-    return f"{emoji} {nome}: {prefixo}{close:,.{casas}f}  {seta} {variacao:+.2f}%"
-
-
-def get_macro_section():
-    linhas = [
-        format_linha("📈", "S&P 500 (Futuros)", "es.f"),
-        format_linha("📈", "Nasdaq (Futuros)", "nq.f"),
-        format_linha("💵", "Índice do Dólar (DXY)", "dx.f"),
-    ]
-    return "\n".join(linhas)
-
-
-def get_energia_section():
-    linhas = [
-        format_linha("🛢", "Brent", "cb.f"),
-        format_linha("🛢", "WTI", "cl.f"),
-        format_linha("🔥", "Gás Natural", "ng.f"),
-    ]
-    return "\n".join(linhas)
-
-
-def get_metais_section():
-    linhas = [
-        format_linha("🥇", "Ouro", "gc.f"),
-        format_linha("🔶", "Cobre", "hg.f"),
-    ]
-    return "\n".join(linhas)
-
-
-# ---------------------------------------------------------------------------
-# Notícias (curadoria via Claude, com busca na web)
-# ---------------------------------------------------------------------------
-
-NEWS_SYSTEM_PROMPT = """\
-Você gera a seção "MANCHETE DO DIA" de um resumo macro diário para Telegram, em português do Brasil.
-
-Pesquise as notícias econômicas mais importantes das últimas horas. Priorize apenas
-acontecimentos que realmente possam impactar os mercados, como: Federal Reserve, FOMC,
-Payroll, CPI, PCE, PPI, PIB, ISM, PMIs, pedidos de auxílio-desemprego, leilões do Tesouro
-americano, Banco Central Europeu, Banco do Japão, Banco Popular da China, inflação na
-Europa/Japão/China, geopolítica, petróleo, tarifas, guerra comercial, ETFs de Bitcoin e
-Ethereum, fluxo institucional, regulações relevantes.
-
-Regras obrigatórias:
-- Escreva sempre em português do Brasil.
+REGRAS OBRIGATÓRIAS
+- Busque todos os dados em tempo real antes de gerar a resposta, usando a ferramenta de busca na web.
+- Nunca utilize informações em cache ou de dias anteriores.
 - Nunca invente dados.
-- Utilize apenas informações verificadas, obtidas pela busca na web.
-- Não faça análises pessoais nem gere opiniões — apenas apresente dados objetivos.
-- Se houver uma notícia relevante, escreva um resumo de no máximo 3 linhas explicando
-  por que ela pode impactar o mercado.
-- Se não houver nenhuma notícia relevante nas últimas horas, responda EXATAMENTE:
-  "Até o momento, não há notícias macroeconômicas relevantes capazes de alterar
-  significativamente o sentimento dos mercados."
-- Responda APENAS com o texto da seção, sem título, sem introdução, sem comentários extras.
-- Use no máximo 1 emoji no texto todo, se fizer sentido.
+- Nunca complete informações por inferência.
+- Se alguma fonte falhar ou o dado não puder ser confirmado, escreva apenas: "Dado indisponível no momento."
+- Nunca escreva frases como "Com base nas informações verificadas…", "Aqui está a seção…",
+  "Segundo a IA…", "Segue o panorama…" ou qualquer variação parecida. Entregue apenas o texto final.
+- Utilize preferencialmente fontes confiáveis como Reuters, Bloomberg, CNBC, Wall Street Journal,
+  Financial Times, TradingView, CoinGecko, CoinMarketCap, CME, Investing e fontes oficiais dos
+  indicadores econômicos.
+
+FORMATAÇÃO (siga exatamente esta estrutura, em texto simples formatado para Telegram)
+
+PANORAMA | DD/MM/AAAA - HH:MM
+
+🌍 MACRO
+📈 S&P 500 (Futuros): valor + variação
+📈 Nasdaq (Futuros): valor + variação
+💵 Dólar (DXY): valor + variação
+
+⚡️ ENERGIA
+🛢 Brent: valor + variação
+🛢 WTI: valor + variação
+🔥 Gás Natural: valor + variação
+
+🪙 METAIS
+🥇 Ouro: valor + variação
+🔶 Cobre: valor + variação
+
+₿ MERCADO CRIPTO
+Para cada ativo (BTC, ETH, SOL, XRP, HYPE, TRX), mostre preço atual e variação nas últimas 24h.
+Use 🟢 quando a variação for positiva e 🔴 quando for negativa.
+Exemplo: 🟠 BTC: US$ 61.740,00 🟢 +2,67%
+(use os emojis 🟠 BTC, 🔵 ETH, 🟣 SOL, ⚫️ XRP, 🟢 HYPE, 🔴 TRX antes de cada ticker)
+
+📰 MANCHETE DO DIA
+Escolha apenas o acontecimento mais importante das últimas 24 horas, priorizando nesta ordem:
+1. Dados macroeconômicos (Payroll, CPI, PPI, PIB, FOMC, Fed, BCE, etc.)
+2. Geopolítica relevante
+3. Economia global
+4. Fluxo institucional
+5. Mercado de criptomoedas
+Escreva um título em negrito, depois um resumo entre 4 e 8 linhas explicando: o que aconteceu,
+por que aconteceu, qual o impacto esperado para os mercados, e possíveis reflexos para o mercado
+cripto quando houver relação. Texto técnico, direto, fácil de entender, sem frases longas, sem
+repetir informação, sem copiar matérias integralmente.
+
+IMPORTANTE
+- Se existir um dado econômico importante divulgado no dia (Payroll, CPI, PPI, decisão de juros
+  etc.), ele deve obrigatoriamente ser a manchete principal, desde que os números estejam
+  confirmados por pelo menos duas fontes confiáveis.
+- Nunca publique informações incompletas.
+- Se uma notícia não puder ser confirmada por pelo menos duas fontes confiáveis, descarte-a.
+- Jamais reutilize notícias de dias anteriores.
+
+REVISÃO FINAL (etapa obrigatória antes de responder)
+Antes de entregar a resposta, revise todas as datas, números e horários. Verifique se todas as
+informações pertencem ao dia atual. Caso encontre qualquer dado desatualizado ou não
+verificável, descarte-o, faça uma nova busca, ou substitua por "Dado indisponível no momento."
+Nunca publique conteúdo de dias anteriores.
+
+Responda apenas com o texto final do panorama, pronto para ser enviado, sem nenhum comentário
+antes ou depois.
 """
 
 
-def get_news_section():
+def get_panorama():
     api_key = os.environ.get("ANTHROPIC_API_KEY")
     if not api_key:
-        return "Não foi possível gerar a seção de notícias (ANTHROPIC_API_KEY não configurada)."
+        return "ERRO: ANTHROPIC_API_KEY não configurada."
+
+    fuso_br = timezone(timedelta(hours=-3))
+    agora = datetime.now(fuso_br)
+    data_hora = agora.strftime("%d/%m/%Y %H:%M")
 
     try:
         url = "https://api.anthropic.com/v1/messages"
@@ -165,55 +111,29 @@ def get_news_section():
         }
         payload = {
             "model": "claude-sonnet-4-6",
-            "max_tokens": 500,
-            "system": NEWS_SYSTEM_PROMPT,
+            "max_tokens": 2000,
+            "system": PANORAMA_SYSTEM_PROMPT,
             "messages": [
                 {
                     "role": "user",
-                    "content": "Gere a seção de manchete do dia com base nas notícias mais recentes.",
+                    "content": (
+                        f"Agora são {data_hora} (horário de Brasília), do dia {agora.strftime('%d/%m/%Y')}. "
+                        "Gere o panorama diário completo seguindo exatamente as regras e a formatação "
+                        "definidas, com dados buscados agora, em tempo real."
+                    ),
                 }
             ],
             "tools": [{"type": "web_search_20250305", "name": "web_search"}],
         }
-        r = requests.post(url, headers=headers, json=payload, timeout=60)
+        r = requests.post(url, headers=headers, json=payload, timeout=TIMEOUT_ANTHROPIC)
         r.raise_for_status()
         data = r.json()
 
         textos = [bloco["text"] for bloco in data.get("content", []) if bloco.get("type") == "text"]
         resultado = "\n".join(textos).strip()
-        return resultado or "Não foi possível gerar a seção de notícias."
+        return resultado or "Dado indisponível no momento."
     except Exception as e:
-        return f"Não foi possível gerar a seção de notícias ({e})."
-
-
-# ---------------------------------------------------------------------------
-# Montagem da mensagem
-# ---------------------------------------------------------------------------
-
-def montar_mensagem():
-    fuso_br = timezone(timedelta(hours=-3))
-    agora = datetime.now(fuso_br).strftime("%d/%m/%Y")
-
-    partes = [
-        "🥷 *BOM DIA, NINJAS!*",
-        f"Confira como os mercados iniciam o dia — {agora}",
-        "",
-        "🌍 *MACRO*",
-        get_macro_section(),
-        "",
-        "⚡ *ENERGIA*",
-        get_energia_section(),
-        "",
-        "🪙 *METAIS*",
-        get_metais_section(),
-        "",
-        "₿ *MERCADO CRIPTO*",
-        get_crypto(),
-        "",
-        "📰 *MANCHETE DO DIA*",
-        get_news_section(),
-    ]
-    return "\n".join(partes)
+        return f"Não foi possível gerar o panorama de hoje. Erro técnico: {e}"
 
 
 # ---------------------------------------------------------------------------
@@ -235,7 +155,7 @@ def enviar_telegram(texto):
         "parse_mode": "Markdown",
         "disable_web_page_preview": True,
     }
-    r = requests.post(url, data=payload, timeout=TIMEOUT)
+    r = requests.post(url, data=payload, timeout=TIMEOUT_TELEGRAM)
     if not r.ok:
         print("Falha ao enviar para o Telegram:", r.text)
         sys.exit(1)
@@ -243,6 +163,6 @@ def enviar_telegram(texto):
 
 
 if __name__ == "__main__":
-    mensagem = montar_mensagem()
+    mensagem = get_panorama()
     print(mensagem)  # aparece nos logs do GitHub Actions, útil para debug
     enviar_telegram(mensagem)
