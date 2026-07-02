@@ -13,7 +13,7 @@ Roda de graça no **GitHub Actions**, sem precisar de servidor.
 ```bash
 pip install requests
 export TELEGRAM_BOT_TOKEN="seu_token_aqui"
-export TELEGRAM_CHAT_ID="seu_chat_id_aqui"
+export TELEGRAM_CHAT_ID="@canalthaitrader"
 python bom_dia_bot.py
 ```
 
