@@ -1,109 +1,189 @@
 """
-Bom Dia Bot - resumo diário de mercado (petróleo, S&P 500, Bitcoin e notícias)
-enviado automaticamente para o Telegram.
+Bom Dia Ninjas - resumo macro diário enviado automaticamente para o Telegram.
 
-Fontes usadas (todas gratuitas, sem necessidade de chave de API):
-- Bitcoin: CoinGecko
-- S&P 500 e Petróleo (WTI): Stooq
-- Notícias: RSS do CoinDesk (cripto) e RSS de economia do Investing.com
+Fontes de dados:
+- Cripto: CoinGecko (gratuito, sem chave)
+- Futuros, câmbio, energia e metais: Stooq (gratuito, sem chave)
+- Curadoria e resumo de notícias macro: API da Anthropic (Claude), usando busca na web
 
-Variáveis de ambiente necessárias (configuradas como Secrets no GitHub):
+Variáveis de ambiente necessárias (Secrets no GitHub):
 - TELEGRAM_BOT_TOKEN
 - TELEGRAM_CHAT_ID
+- ANTHROPIC_API_KEY
 """
 
 import os
 import sys
 import requests
-import xml.etree.ElementTree as ET
 from datetime import datetime, timezone, timedelta
 
-TIMEOUT = 15
+TIMEOUT = 20
 
 
 # ---------------------------------------------------------------------------
-# Coleta de dados
+# Cripto (CoinGecko)
 # ---------------------------------------------------------------------------
 
-def get_bitcoin():
-    """Retorna preço do BTC em USD e BRL + variação 24h."""
+CRYPTO_IDS = {
+    "bitcoin": ("🟠", "BTC"),
+    "ethereum": ("🔵", "ETH"),
+    "solana": ("🟣", "SOL"),
+    "ripple": ("⚫", "XRP"),
+    "hyperliquid": ("🟢", "HYPE"),
+    "tron": ("🔴", "TRX"),
+}
+
+
+def get_crypto():
     try:
+        ids = ",".join(CRYPTO_IDS.keys())
         url = (
-            "https://api.coingecko.com/api/v3/simple/price"
-            "?ids=bitcoin&vs_currencies=usd,brl&include_24hr_change=true"
+            f"https://api.coingecko.com/api/v3/simple/price"
+            f"?ids={ids}&vs_currencies=usd&include_24hr_change=true"
         )
         r = requests.get(url, timeout=TIMEOUT)
         r.raise_for_status()
-        data = r.json()["bitcoin"]
-        usd = data["usd"]
-        brl = data["brl"]
-        change = data["usd_24h_change"]
-        seta = "🟢" if change >= 0 else "🔴"
-        return (
-            f"₿ *Bitcoin*: US$ {usd:,.0f} (R$ {brl:,.0f}) "
-            f"{seta} {change:+.2f}% (24h)"
-        )
+        data = r.json()
+
+        linhas = []
+        for coin_id, (emoji, ticker) in CRYPTO_IDS.items():
+            if coin_id not in data:
+                linhas.append(f"{emoji} {ticker}: dado indisponível")
+                continue
+            preco = data[coin_id]["usd"]
+            variacao = data[coin_id].get("usd_24h_change", 0)
+            seta = "🔺" if variacao >= 0 else "🔻"
+            linhas.append(
+                f"{emoji} {ticker}: US$ {preco:,.2f}  {seta} {variacao:+.2f}% (24h)"
+            )
+        return "\n".join(linhas)
     except Exception as e:
-        return f"₿ *Bitcoin*: não foi possível obter os dados ({e})"
+        return f"Não foi possível obter os dados de cripto ({e})"
 
 
-def get_stooq_quote(symbol, label):
-    """Busca cotação simples de um símbolo no Stooq (CSV)."""
+# ---------------------------------------------------------------------------
+# Stooq (futuros, câmbio, energia, metais)
+# ---------------------------------------------------------------------------
+
+def get_stooq_quote(symbol):
+    """Retorna (close, variacao_pct) ou None se falhar."""
     try:
         url = f"https://stooq.com/q/l/?s={symbol}&f=sd2t2ohlcv&h&e=csv"
         r = requests.get(url, timeout=TIMEOUT)
         r.raise_for_status()
         lines = r.text.strip().splitlines()
         if len(lines) < 2:
-            raise ValueError("resposta vazia do Stooq")
+            return None
         header = lines[0].split(",")
         values = lines[1].split(",")
         row = dict(zip(header, values))
         close = float(row["Close"])
         open_ = float(row["Open"])
-        change = ((close - open_) / open_ * 100) if open_ else 0
-        seta = "🟢" if change >= 0 else "🔴"
-        return f"{label}: {close:,.2f} {seta} {change:+.2f}% (dia)"
-    except Exception as e:
-        return f"{label}: não foi possível obter os dados ({e})"
-
-
-def get_sp500():
-    return get_stooq_quote("^spx", "📈 *S&P 500*")
-
-
-def get_oil():
-    return get_stooq_quote("cl.f", "🛢️ *Petróleo (WTI)*")
-
-
-def get_rss_headlines(url, max_items=3):
-    """Pega os títulos mais recentes de um feed RSS."""
-    try:
-        r = requests.get(url, timeout=TIMEOUT, headers={"User-Agent": "Mozilla/5.0"})
-        r.raise_for_status()
-        root = ET.fromstring(r.content)
-        titles = [item.findtext("title") for item in root.iter("item")]
-        titles = [t.strip() for t in titles if t][:max_items]
-        return titles
+        if close == 0 or row["Close"] in ("N/D", ""):
+            return None
+        variacao = ((close - open_) / open_ * 100) if open_ else 0
+        return close, variacao
     except Exception:
-        return []
+        return None
+
+
+def format_linha(emoji, nome, symbol, casas=2, prefixo=""):
+    resultado = get_stooq_quote(symbol)
+    if resultado is None:
+        return f"{emoji} {nome}: Mercado fechado ou dado indisponível"
+    close, variacao = resultado
+    seta = "🔺" if variacao >= 0 else "🔻"
+    return f"{emoji} {nome}: {prefixo}{close:,.{casas}f}  {seta} {variacao:+.2f}%"
+
+
+def get_macro_section():
+    linhas = [
+        format_linha("📈", "S&P 500 (Futuros)", "es.f"),
+        format_linha("📈", "Nasdaq (Futuros)", "nq.f"),
+        format_linha("💵", "Índice do Dólar (DXY)", "dx.f"),
+    ]
+    return "\n".join(linhas)
+
+
+def get_energia_section():
+    linhas = [
+        format_linha("🛢", "Brent", "cb.f"),
+        format_linha("🛢", "WTI", "cl.f"),
+        format_linha("🔥", "Gás Natural", "ng.f"),
+    ]
+    return "\n".join(linhas)
+
+
+def get_metais_section():
+    linhas = [
+        format_linha("🥇", "Ouro", "gc.f"),
+        format_linha("🔶", "Cobre", "hg.f"),
+    ]
+    return "\n".join(linhas)
+
+
+# ---------------------------------------------------------------------------
+# Notícias (curadoria via Claude, com busca na web)
+# ---------------------------------------------------------------------------
+
+NEWS_SYSTEM_PROMPT = """\
+Você gera a seção "MANCHETE DO DIA" de um resumo macro diário para Telegram, em português do Brasil.
+
+Pesquise as notícias econômicas mais importantes das últimas horas. Priorize apenas
+acontecimentos que realmente possam impactar os mercados, como: Federal Reserve, FOMC,
+Payroll, CPI, PCE, PPI, PIB, ISM, PMIs, pedidos de auxílio-desemprego, leilões do Tesouro
+americano, Banco Central Europeu, Banco do Japão, Banco Popular da China, inflação na
+Europa/Japão/China, geopolítica, petróleo, tarifas, guerra comercial, ETFs de Bitcoin e
+Ethereum, fluxo institucional, regulações relevantes.
+
+Regras obrigatórias:
+- Escreva sempre em português do Brasil.
+- Nunca invente dados.
+- Utilize apenas informações verificadas, obtidas pela busca na web.
+- Não faça análises pessoais nem gere opiniões — apenas apresente dados objetivos.
+- Se houver uma notícia relevante, escreva um resumo de no máximo 3 linhas explicando
+  por que ela pode impactar o mercado.
+- Se não houver nenhuma notícia relevante nas últimas horas, responda EXATAMENTE:
+  "Até o momento, não há notícias macroeconômicas relevantes capazes de alterar
+  significativamente o sentimento dos mercados."
+- Responda APENAS com o texto da seção, sem título, sem introdução, sem comentários extras.
+- Use no máximo 1 emoji no texto todo, se fizer sentido.
+"""
 
 
 def get_news_section():
-    cripto = get_rss_headlines("https://www.coindesk.com/arc/outboundfeeds/rss/", 3)
-    economia = get_rss_headlines("https://www.investing.com/rss/news_25.rss", 3)
+    api_key = os.environ.get("ANTHROPIC_API_KEY")
+    if not api_key:
+        return "Não foi possível gerar a seção de notícias (ANTHROPIC_API_KEY não configurada)."
 
-    linhas = []
-    if cripto:
-        linhas.append("🪙 *Cripto:*")
-        linhas += [f"• {t}" for t in cripto]
-    if economia:
-        linhas.append("\n🌍 *Economia:*")
-        linhas += [f"• {t}" for t in economia]
+    try:
+        url = "https://api.anthropic.com/v1/messages"
+        headers = {
+            "x-api-key": api_key,
+            "anthropic-version": "2023-06-01",
+            "content-type": "application/json",
+        }
+        payload = {
+            "model": "claude-sonnet-4-6",
+            "max_tokens": 500,
+            "system": NEWS_SYSTEM_PROMPT,
+            "messages": [
+                {
+                    "role": "user",
+                    "content": "Gere a seção de manchete do dia com base nas notícias mais recentes.",
+                }
+            ],
+            "tools": [{"type": "web_search_20250305", "name": "web_search"}],
+        }
+        r = requests.post(url, headers=headers, json=payload, timeout=60)
+        r.raise_for_status()
+        data = r.json()
 
-    if not linhas:
-        return "📰 Não foi possível carregar as notícias hoje."
-    return "📰 *Manchetes de hoje*\n" + "\n".join(linhas)
+        textos = [bloco["text"] for bloco in data.get("content", []) if bloco.get("type") == "text"]
+        resultado = "\n".join(textos).strip()
+        return resultado or "Não foi possível gerar a seção de notícias."
+    except Exception as e:
+        return f"Não foi possível gerar a seção de notícias ({e})."
 
 
 # ---------------------------------------------------------------------------
@@ -112,15 +192,25 @@ def get_news_section():
 
 def montar_mensagem():
     fuso_br = timezone(timedelta(hours=-3))
-    agora = datetime.now(fuso_br).strftime("%d/%m/%Y %H:%M")
+    agora = datetime.now(fuso_br).strftime("%d/%m/%Y")
 
     partes = [
-        f"☀️ *Bom dia! Resumo de mercado - {agora} (Brasília)*",
+        "🥷 *BOM DIA, NINJAS!*",
+        f"Confira como os mercados iniciam o dia — {agora}",
         "",
-        get_bitcoin(),
-        get_sp500(),
-        get_oil(),
+        "🌍 *MACRO*",
+        get_macro_section(),
         "",
+        "⚡ *ENERGIA*",
+        get_energia_section(),
+        "",
+        "🪙 *METAIS*",
+        get_metais_section(),
+        "",
+        "₿ *MERCADO CRIPTO*",
+        get_crypto(),
+        "",
+        "📰 *MANCHETE DO DIA*",
         get_news_section(),
     ]
     return "\n".join(partes)
