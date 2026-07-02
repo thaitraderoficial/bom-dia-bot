@@ -199,6 +199,42 @@ def chamar_claude(system_prompt, user_content, max_tokens, usar_busca_web=True):
     return resultado
 
 
+def limpar_resposta(texto):
+    """Proteção final, no código (não depende da Claude obedecer o prompt):
+    - Corta tudo que vier ANTES da palavra "PANORAMA", garantindo que nenhum
+      comentário de processo escape no início da mensagem.
+    - Remove parágrafos curtos que pareçam comentário sobre o processo de busca,
+      mesmo que apareçam no meio ou no fim do texto.
+    """
+    if not texto:
+        return texto
+
+    idx = texto.upper().find("PANORAMA")
+    if idx > 0:
+        texto = texto[idx:]
+
+    frases_proibidas = [
+        "busquei", "coletei", "puxei", "verifiquei", "pesquisei", "consultei",
+        "com todos os dados", "todas as informações necessárias",
+        "informações verificadas", "segue o panorama", "segue abaixo",
+        "aqui está", "aqui estão", "dados coletados", "dados verificados",
+        "espero que", "qualquer dúvida", "fico à disposição", "segundo a ia",
+        "com base nas informações",
+    ]
+
+    paragrafos = texto.split("\n\n")
+    limpos = []
+    for p in paragrafos:
+        p_normalizado = p.strip().lower()
+        eh_curto = len(p_normalizado) < 200
+        tem_frase_proibida = any(f in p_normalizado for f in frases_proibidas)
+        if eh_curto and tem_frase_proibida:
+            continue  # descarta esse parágrafo de narração
+        limpos.append(p)
+
+    return "\n\n".join(limpos).strip()
+
+
 def get_panorama():
     if not os.environ.get("ANTHROPIC_API_KEY"):
         return "ERRO: ANTHROPIC_API_KEY não configurada."
@@ -214,6 +250,7 @@ def get_panorama():
             "definidas, com dados buscados agora, em tempo real."
         )
         resultado = chamar_claude(PANORAMA_SYSTEM_PROMPT, user_content, max_tokens=2000)
+        resultado = limpar_resposta(resultado)
         return resultado or "Dado indisponível no momento."
     except Exception as e:
         return f"Não foi possível gerar o panorama de hoje. Erro técnico: {e}"
