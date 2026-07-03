@@ -1,11 +1,12 @@
 """
 Panorama Diário (ThaiTraderOficial) - resumo de mercado enviado automaticamente
-para o Telegram, gerado pela Claude com busca em tempo real na web.
+para o Telegram, gerado com dados buscados em tempo real pela Claude.
 
-Por que assim: fontes gratuitas de cotação (tipo Stooq) falham com frequência e
-não garantem dado do dia certo. Deixamos a Claude buscar e verificar tudo (preços,
-variações e notícias) direto de fontes confiáveis, seguindo regras rígidas de
-precisão, atualidade e formatação.
+Arquitetura: a Claude devolve os dados em JSON (só números e texto puro, nada de
+formatação). O PYTHON monta o texto final e alinha as colunas de preço/variação
+usando fonte monoespaçada (bloco de código do Telegram) — isso garante alinhamento
+perfeito sempre, e também elimina qualquer risco de a IA "narrar o processo",
+porque a resposta dela vira só um dado estruturado, sem espaço para comentários.
 
 Variáveis de ambiente necessárias (Secrets no GitHub):
 - TELEGRAM_BOT_TOKEN
@@ -16,149 +17,101 @@ Variáveis de ambiente necessárias (Secrets no GitHub):
 import os
 import re
 import sys
+import json
 import requests
 from datetime import datetime, timezone, timedelta
 
 TIMEOUT_TELEGRAM = 20
 TIMEOUT_ANTHROPIC = 120
 
+INDISPONIVEL = "Dado indisponível no momento."
+
 
 PANORAMA_SYSTEM_PROMPT = """\
-Você é o responsável por gerar o PANORAMA DIÁRIO da ThaiTraderOficial.
+Você é o responsável por coletar os dados do PANORAMA DIÁRIO da ThaiTraderOficial.
 Sua prioridade é precisão, objetividade e atualização em tempo real.
 
 REGRAS OBRIGATÓRIAS
-- Busque todos os dados em tempo real antes de gerar a resposta, usando a ferramenta de busca na web.
+- Busque todos os dados em tempo real antes de responder, usando a ferramenta de busca na web.
 - Nunca utilize informações em cache ou de dias anteriores.
-- Nunca invente dados.
-- Nunca complete informações por inferência.
-- Se alguma fonte falhar ou o dado não puder ser confirmado, escreva apenas: "Dado indisponível no momento."
+- Nunca invente dados. Nunca complete informações por inferência.
+- Se algum dado não puder ser confirmado, use exatamente a string "Dado indisponível no momento."
+  nos campos "valor" e null no campo "variacao" daquele item.
 - Utilize preferencialmente fontes confiáveis como Reuters, Bloomberg, CNBC, Wall Street Journal,
   Financial Times, TradingView, CoinGecko, CoinMarketCap, CME, Investing e fontes oficiais dos
   indicadores econômicos.
-
-REGRAS DE APRESENTAÇÃO (OBRIGATÓRIAS — LEIA COM MÁXIMA ATENÇÃO)
-Sua resposta será copiada e colada, palavra por palavra, direto para um canal público com
-milhares de leitores. Qualquer frase que não seja um dado de mercado ou o texto da manchete
-quebra a credibilidade do canal. Isso vale para QUALQUER parte da resposta: início, meio ou fim.
-- Exiba apenas a resposta final. Nunca mostre o processo de busca, nunca comente sobre as fontes
-  que usou, nunca resuma o que fez, nunca narre o que está fazendo.
-- PROIBIDO usar, em qualquer parte da resposta, frases como:
-  "Vou buscar…", "Estou pesquisando…", "Agora vou consultar…", "Com todos os dados coletados…",
-  "Após verificar…", "Pesquisando fontes…", "Segue abaixo…", "Aqui está…", "Segue o panorama…",
-  "Dados verificados em múltiplas fontes confiáveis…", "Com base nas informações verificadas…",
-  "Todos os dados foram confirmados…", "Segundo a IA…", ou qualquer frase que mencione o ato de
-  verificar, buscar, confirmar, pesquisar ou coletar informação — mesmo de forma indireta.
-- Nunca explique como chegou às informações. Nunca exponha seu raciocínio interno. Nunca faça um
-  comentário de abertura ou de fechamento sobre o processo (ex: "esses foram os dados de hoje").
-- A resposta deve começar diretamente pelo título "*PANORAMA | DD/MM/AAAA - HH:MM*" e terminar
-  diretamente no último caractere do resumo da manchete — sem nenhuma linha de abertura ou
-  fechamento além disso.
-- Antes de responder, releia mentalmente o texto que você vai entregar e remova qualquer frase
-  que descreva o que você fez, mesmo que pareça inofensiva.
-
-FORMATAÇÃO (siga exatamente esta estrutura — é a formatação Markdown do Telegram)
-- O título do topo vai em negrito: *PANORAMA | DD/MM/AAAA - HH:MM*
-- Os títulos de cada seção vão em negrito: *₿ MERCADO CRIPTO*, *🌍 MACRO*, *⚡ ENERGIA*,
-  *🪙 METAIS*, *📰 MANCHETE DO DIA*.
-- Use emojis apenas nesses títulos de seção, nunca em cada ativo individual. Para cada ativo,
-  indique só a direção com 🟢 (alta) ou 🔴 (queda) depois da variação percentual.
-- Entre a maioria das seções, deixe UMA linha em branco. Mas entre a seção de METAIS e a seção
-  de MANCHETE DO DIA, deixe DUAS linhas em branco — a manchete é uma notícia, não um dado de
-  cotação, e merece uma separação visual maior do resto.
-- A ordem das seções é sempre: MERCADO CRIPTO primeiro, depois MACRO, ENERGIA, METAIS e por
-  último MANCHETE DO DIA.
-
-SEÇÃO MERCADO CRIPTO
-Para cada ativo (BTC, ETH, SOL, XRP, HYPE, TRX), mostre preço atual e variação nas últimas 24h,
-com 🟢 ou 🔴 conforme a direção.
-
-SEÇÃO MANCHETE DO DIA
-Escolha apenas o acontecimento mais importante das últimas 24 horas, priorizando nesta ordem:
-1. Dados macroeconômicos (Payroll, CPI, PPI, PIB, FOMC, Fed, BCE, etc.)
-2. Geopolítica relevante
-3. Economia global
-4. Fluxo institucional
-5. Mercado de criptomoedas
-Escreva um título em negrito (com asteriscos), depois um resumo entre 4 e 8 linhas.
-- NUNCA escreva o resumo como um bloco de texto corrido. Divida em parágrafos curtos (1 a 3
-  linhas cada), com uma linha em branco entre eles, toda vez que o assunto mudar dentro do
-  resumo — por exemplo: um parágrafo sobre o que aconteceu, linha em branco, outro parágrafo
-  sobre o impacto esperado (ex: no dólar, nos juros), linha em branco, e se houver relação, um
-  último parágrafo curto sobre o reflexo no mercado cripto.
-- Se for citar uma frase literal de alguém (ex: um dirigente do Fed, um comunicado oficial),
-  coloque a citação em itálico, usando um único sublinhado de cada lado, assim: _"texto citado
-  aqui"_. Use isso só quando houver uma citação real e relevante — não force citações.
-- Texto técnico, direto, fácil de entender, frases curtas, sem repetir informação, sem copiar
-  matérias integralmente.
-
-IMPORTANTE
 - Se existir um dado econômico importante divulgado no dia (Payroll, CPI, PPI, decisão de juros
-  etc.), ele deve obrigatoriamente ser a manchete principal, desde que os números estejam
-  confirmados por pelo menos duas fontes confiáveis.
-- Nunca publique informações incompletas.
-- Se uma notícia não puder ser confirmada por pelo menos duas fontes confiáveis, descarte-a.
+  etc.), ele deve obrigatoriamente ser a manchete principal, desde que confirmado por pelo menos
+  duas fontes confiáveis.
+- Se uma notícia não puder ser confirmada por pelo menos duas fontes confiáveis, descarte-a e
+  escolha a próxima mais relevante.
 - Jamais reutilize notícias de dias anteriores.
+- Antes de responder, revise todas as datas, números e horários: confirme que pertencem ao dia
+  de hoje. Descarte e busque de novo qualquer dado desatualizado ou não verificável.
 
-REVISÃO FINAL (etapa obrigatória antes de responder)
-Antes de entregar a resposta, revise todas as datas, números e horários. Verifique se todas as
-informações pertencem ao dia atual. Caso encontre qualquer dado desatualizado ou não
-verificável, descarte-o, faça uma nova busca, ou substitua por "Dado indisponível no momento."
-Nunca publique conteúdo de dias anteriores. Revise também se não sobrou nenhuma frase sobre o
-processo de busca (releia as REGRAS DE APRESENTAÇÃO acima antes de finalizar).
+FORMATO DE RESPOSTA (OBRIGATÓRIO)
+Responda SOMENTE com um objeto JSON válido, sem nenhum texto antes ou depois, sem bloco de
+markdown (nada de ```json), sem comentário, sem explicação — só o JSON puro, pronto para ser
+processado por um programa. Isso é uma chamada de dados, não uma conversa: nenhum campo do JSON
+deve conter frases sobre o processo de busca, comentários, ou qualquer coisa além do dado puro
+em si.
 
-EXEMPLO DE FORMATAÇÃO EXATA A SEGUIR (não copie os números, são só ilustrativos):
+Use exatamente este formato:
 
-*PANORAMA | DD/MM/AAAA - HH:MM*
+{
+  "cripto": [
+    {"ticker": "BTC", "valor": "US$ 61.500", "variacao": "+3,19%"},
+    {"ticker": "ETH", "valor": "US$ 1.694", "variacao": "+6,00%"},
+    {"ticker": "SOL", "valor": "US$ 80,71", "variacao": "+4,49%"},
+    {"ticker": "XRP", "valor": "US$ 1,09", "variacao": "+3,88%"},
+    {"ticker": "HYPE", "valor": "US$ 65,30", "variacao": "+2,49%"},
+    {"ticker": "TRX", "valor": "US$ 0,318", "variacao": "+0,28%"}
+  ],
+  "macro": [
+    {"nome": "S&P 500 (Futuros)", "valor": "7.508 pts", "variacao": "+0,12%"},
+    {"nome": "Nasdaq (Futuros)", "valor": "26.175 pts", "variacao": "-0,15%"},
+    {"nome": "Dólar (DXY)", "valor": "100,74", "variacao": "-0,65%"}
+  ],
+  "energia": [
+    {"nome": "Brent", "valor": "US$ 70,90", "variacao": "-2,00%"},
+    {"nome": "WTI", "valor": "US$ 68,25", "variacao": "-0,48%"},
+    {"nome": "Gás Natural", "valor": "US$ 3,18", "variacao": "-1,29%"}
+  ],
+  "metais": [
+    {"nome": "Ouro", "valor": "US$ 4.110,29", "variacao": "+1,96%"},
+    {"nome": "Cobre", "valor": "US$ 6,11", "variacao": "-1,33%"}
+  ],
+  "manchete_titulo": "Fed sinaliza pausa nos cortes de juros após dado de inflação acima do esperado",
+  "manchete_paragrafos": [
+    "O CPI de junho veio em 3,2% ao ano, acima da projeção de 3,0%. Isso reduz a probabilidade de um novo corte de juros na próxima reunião do FOMC.",
+    "Com juros mais altos por mais tempo, o dólar tende a se fortalecer no curto prazo, pressionando ativos de risco globalmente.",
+    "No mercado cripto, o movimento costuma gerar aversão a risco de curto prazo, com pressão vendedora em BTC e altcoins até a poeira baixar."
+  ]
+}
 
-*₿ MERCADO CRIPTO*
-BTC: US$ 61.499 🟢 +2,26%
-ETH: US$ 1.692 🟢 +4,60%
-SOL: US$ 80,71 🟢 +4,49%
-XRP: US$ 1,09 🟢 +3,15%
-HYPE: US$ 64,87 🟢 +4,00%
-TRX: US$ 0,32 🟢 +0,14%
-
-*🌍 MACRO*
-S&P 500 (Futuros): 7.508 pts 🟢 +0,12%
-Nasdaq (Futuros): 26.175 pts 🔴 -0,15%
-Dólar (DXY): 100,74 🔴 -0,65%
-
-*⚡ ENERGIA*
-Brent: US$ 70,90 🔴 -2,00%
-WTI: US$ 68,25 🔴 -0,48%
-Gás Natural: US$ 3,18 🔴 -1,29%
-
-*🪙 METAIS*
-Ouro: US$ 4.110,29 🟢 +1,96%
-Cobre: US$ 6,11 🔴 -1,33%
-
-
-*📰 MANCHETE DO DIA*
-*Fed sinaliza pausa nos cortes de juros após dado de inflação acima do esperado*
-
-O CPI de junho veio em 3,2% ao ano, acima da projeção de 3,0%. Isso reduz a probabilidade de
-um novo corte de juros na próxima reunião do FOMC.
-
-Em comunicado, um dos dirigentes do Fed afirmou que _"ainda é cedo para declarar vitória contra
-a inflação"_.
-
-Com juros mais altos por mais tempo, o dólar tende a se fortalecer no curto prazo, pressionando
-ativos de risco globalmente.
-
-No mercado cripto, o movimento costuma gerar aversão a risco de curto prazo, com pressão vendedora
-em BTC e altcoins até a poeira baixar.
-
-Responda apenas com o texto final do panorama, pronto para ser enviado, sem nenhum comentário
-antes ou depois, e sem repetir o rótulo "Exemplo" ou qualquer marcação — apenas o conteúdo real.
+Regras sobre os campos:
+- "valor": string só com o número/preço, sem emoji, sem seta, sem cor.
+- "variacao": string com sinal (+ ou -) e "%", sem emoji, sem cor. Use null se indisponível.
+- Se um dado estiver indisponível, use "valor": "Dado indisponível no momento." e "variacao": null
+  para aquele item específico — não descarte o item da lista, mantenha o ticker/nome.
+- "manchete_titulo": só o título, sem asteriscos, sem formatação.
+- "manchete_paragrafos": uma lista de strings, cada string é UM parágrafo (o programa vai
+  separar visualmente cada parágrafo com uma linha em branco). Divida por assunto: um parágrafo
+  para o que aconteceu, outro para o impacto esperado, e se houver relação, um terceiro sobre o
+  reflexo no mercado cripto. Cada parágrafo deve ser curto (1 a 3 frases).
+- Se quiser citar uma frase literal de alguém (ex: um dirigente do Fed), inclua a citação dentro
+  do parágrafo entre aspas normais — o programa vai aplicar o itálico automaticamente.
+- Escolha a manchete priorizando nesta ordem: 1) dados macroeconômicos (Payroll, CPI, PPI, PIB,
+  FOMC, Fed, BCE), 2) geopolítica relevante, 3) economia global, 4) fluxo institucional,
+  5) mercado de criptomoedas.
 """
 
 
-def chamar_claude(system_prompt, user_content, max_tokens, usar_busca_web=True):
-    """Chama a API da Claude e devolve só o texto final (sem narrar o processo de busca)."""
+def chamar_claude_json(system_prompt, user_content, max_tokens):
+    """Chama a API da Claude esperando um JSON puro como resposta."""
     api_key = os.environ.get("ANTHROPIC_API_KEY")
     if not api_key:
-        return ""
+        return None
 
     url = "https://api.anthropic.com/v1/messages"
     headers = {
@@ -171,9 +124,8 @@ def chamar_claude(system_prompt, user_content, max_tokens, usar_busca_web=True):
         "max_tokens": max_tokens,
         "system": system_prompt,
         "messages": [{"role": "user", "content": user_content}],
+        "tools": [{"type": "web_search_20250305", "name": "web_search"}],
     }
-    if usar_busca_web:
-        payload["tools"] = [{"type": "web_search_20250305", "name": "web_search"}]
 
     r = requests.post(url, headers=headers, json=payload, timeout=TIMEOUT_ANTHROPIC)
     r.raise_for_status()
@@ -181,9 +133,8 @@ def chamar_claude(system_prompt, user_content, max_tokens, usar_busca_web=True):
 
     blocos = data.get("content", [])
 
-    # Proteção extra: pega só os blocos de texto que vêm DEPOIS da última
-    # busca na web, ignorando qualquer texto que a Claude tenha escrito
-    # entre uma busca e outra (evita narrar o processo, tipo "vou buscar...").
+    # Pega só os blocos de texto que vêm DEPOIS da última busca na web
+    # (ignora qualquer coisa que a Claude tenha escrito entre uma busca e outra).
     ultimo_indice_ferramenta = -1
     for i, bloco in enumerate(blocos):
         if bloco.get("type") in ("tool_use", "server_tool_use", "web_search_tool_result"):
@@ -191,53 +142,121 @@ def chamar_claude(system_prompt, user_content, max_tokens, usar_busca_web=True):
 
     blocos_finais = blocos[ultimo_indice_ferramenta + 1:]
     textos = [bloco["text"] for bloco in blocos_finais if bloco.get("type") == "text"]
-    resultado = "\n".join(textos).strip()
+    texto_resultado = "\n".join(textos).strip()
 
-    if not resultado:
+    if not texto_resultado:
         todos_textos = [bloco["text"] for bloco in blocos if bloco.get("type") == "text"]
-        resultado = "\n".join(todos_textos).strip()
+        texto_resultado = "\n".join(todos_textos).strip()
 
-    return resultado
+    # Proteção extra: pega só o trecho entre a primeira "{" e a última "}",
+    # caso sobre algum texto solto antes/depois do JSON.
+    inicio = texto_resultado.find("{")
+    fim = texto_resultado.rfind("}")
+    if inicio == -1 or fim == -1:
+        return None
+    texto_json = texto_resultado[inicio:fim + 1]
+
+    try:
+        return json.loads(texto_json)
+    except json.JSONDecodeError:
+        return None
 
 
-def limpar_resposta(texto):
-    """Proteção final, no código (não depende da Claude obedecer o prompt):
-    - Corta tudo que vier ANTES do título real "PANORAMA | data", identificado pelo
-      padrão "PANORAMA" seguido de "|" — não corta em qualquer menção solta da
-      palavra "panorama" (ex: dentro de uma frase de narração tipo "aqui está o
-      panorama completo"), só no título formatado de verdade.
-    - Remove parágrafos curtos que pareçam comentário sobre o processo de busca,
-      mesmo que apareçam no meio ou no fim do texto.
-    """
+# ---------------------------------------------------------------------------
+# Montagem do texto final (feita 100% em Python, garante alinhamento perfeito)
+# ---------------------------------------------------------------------------
+
+EMOJI_PATTERN = re.compile(
+    "["
+    "\U0001F300-\U0001FAFF"  # símbolos, pictogramas, emojis diversos (inclui 🟢🔴)
+    "\U00002600-\U000027BF"  # símbolos diversos e dingbats
+    "\U0001F1E6-\U0001F1FF"  # bandeiras
+    "\U00002190-\U000021FF"  # setas
+    "\U00002B00-\U00002BFF"  # setas/símbolos extras
+    "\uFE0F"                  # seletor de variação de emoji
+    "]+",
+    flags=re.UNICODE,
+)
+
+
+def remover_emojis(texto):
     if not texto:
         return texto
+    return EMOJI_PATTERN.sub("", str(texto)).strip()
 
-    match_titulo = re.search(r"\*?PANORAMA\s*\|", texto, re.IGNORECASE)
-    if match_titulo:
-        texto = texto[match_titulo.start():]
 
-    frases_proibidas = [
-        "busquei", "coletei", "puxei", "verifiquei", "pesquisei", "consultei",
-        "com todos os dados", "todas as informações necessárias",
-        "informações verificadas", "segue o panorama", "segue abaixo",
-        "aqui está", "aqui estão", "dados coletados", "dados verificados",
-        "espero que", "qualquer dúvida", "fico à disposição", "segundo a ia",
-        "com base nas informações", "com base em", "várias fontes",
-        "diversas fontes", "múltiplas fontes", "panorama completo",
+def formatar_tabela(itens, chave_nome):
+    """Monta uma tabela alinhada (fonte monoespaçada) a partir de uma lista de
+    dicts com chave_nome / "valor" / "variacao". Remove qualquer emoji que a IA
+    tenha colocado por engano nos valores, garantindo que nunca apareça bolinha
+    colorida nem nenhum outro símbolo."""
+    if not itens:
+        return INDISPONIVEL
+
+    for i in itens:
+        i["valor"] = remover_emojis(i.get("valor"))
+        i["variacao"] = remover_emojis(i.get("variacao"))
+
+    largura_nome = max(len(str(i.get(chave_nome, ""))) for i in itens)
+    largura_valor = max(len(str(i.get("valor") or INDISPONIVEL)) for i in itens)
+
+    linhas = []
+    for i in itens:
+        nome = str(i.get(chave_nome, "")).ljust(largura_nome)
+        valor = i.get("valor") or INDISPONIVEL
+        variacao = i.get("variacao")
+
+        if not variacao or valor == INDISPONIVEL:
+            linhas.append(f"{nome}  {valor}")
+        else:
+            valor_padded = str(valor).ljust(largura_valor)
+            linhas.append(f"{nome}  {valor_padded}  {variacao}")
+
+    return "\n".join(linhas)
+
+
+def formatar_manchete(dados):
+    titulo = dados.get("manchete_titulo") or ""
+    paragrafos = dados.get("manchete_paragrafos") or []
+
+    if not titulo or not paragrafos:
+        return INDISPONIVEL
+
+    # Aplica itálico em qualquer trecho entre aspas (citação literal)
+    paragrafos_formatados = []
+    for p in paragrafos:
+        p_com_italico = re.sub(r'"([^"]+)"', r'_"\1"_', p)
+        paragrafos_formatados.append(p_com_italico)
+
+    corpo = "\n\n".join(paragrafos_formatados)
+    return f"*{titulo}*\n\n{corpo}"
+
+
+def montar_mensagem(dados):
+    fuso_br = timezone(timedelta(hours=-3))
+    agora = datetime.now(fuso_br)
+    data_hora = agora.strftime("%d/%m/%Y - %H:%M")
+
+    partes = [
+        f"*PANORAMA | {data_hora}*",
+        "",
+        "*₿ MERCADO CRIPTO*",
+        f"```\n{formatar_tabela(dados.get('cripto', []), 'ticker')}\n```",
+        "",
+        "*🌍 MACRO*",
+        f"```\n{formatar_tabela(dados.get('macro', []), 'nome')}\n```",
+        "",
+        "*⚡ ENERGIA*",
+        f"```\n{formatar_tabela(dados.get('energia', []), 'nome')}\n```",
+        "",
+        "*🪙 METAIS*",
+        f"```\n{formatar_tabela(dados.get('metais', []), 'nome')}\n```",
+        "",
+        "",
+        "*📰 MANCHETE DO DIA*",
+        formatar_manchete(dados),
     ]
-
-    paragrafos = texto.split("\n\n")
-    limpos = []
-    for i, p in enumerate(paragrafos):
-        p_normalizado = p.strip().lower()
-        eh_curto = len(p_normalizado) < 200
-        # Nunca descarta o primeiro parágrafo (é o título real, já garantido acima)
-        tem_frase_proibida = any(f in p_normalizado for f in frases_proibidas)
-        if i > 0 and eh_curto and tem_frase_proibida:
-            continue  # descarta esse parágrafo de narração
-        limpos.append(p)
-
-    return "\n\n".join(limpos).strip()
+    return "\n".join(partes)
 
 
 def get_panorama():
@@ -246,17 +265,16 @@ def get_panorama():
 
     fuso_br = timezone(timedelta(hours=-3))
     agora = datetime.now(fuso_br)
-    data_hora = agora.strftime("%d/%m/%Y %H:%M")
 
     try:
         user_content = (
-            f"Agora são {data_hora} (horário de Brasília), do dia {agora.strftime('%d/%m/%Y')}. "
-            "Gere o panorama diário completo seguindo exatamente as regras e a formatação "
-            "definidas, com dados buscados agora, em tempo real."
+            f"Agora são {agora.strftime('%d/%m/%Y %H:%M')} (horário de Brasília). "
+            "Busque os dados de hoje, em tempo real, e responda só com o JSON no formato definido."
         )
-        resultado = chamar_claude(PANORAMA_SYSTEM_PROMPT, user_content, max_tokens=2000)
-        resultado = limpar_resposta(resultado)
-        return resultado or "Dado indisponível no momento."
+        dados = chamar_claude_json(PANORAMA_SYSTEM_PROMPT, user_content, max_tokens=2000)
+        if not dados:
+            return "Não foi possível gerar o panorama de hoje (resposta inválida da IA)."
+        return montar_mensagem(dados)
     except Exception as e:
         return f"Não foi possível gerar o panorama de hoje. Erro técnico: {e}"
 
@@ -267,24 +285,48 @@ def get_panorama():
 
 def enviar_telegram(texto):
     token = os.environ.get("TELEGRAM_BOT_TOKEN")
-    chat_id = os.environ.get("TELEGRAM_CHAT_ID")
+    chat_ids_raw = os.environ.get("TELEGRAM_CHAT_ID")
 
-    if not token or not chat_id:
+    if not token or not chat_ids_raw:
         print("ERRO: defina as variáveis TELEGRAM_BOT_TOKEN e TELEGRAM_CHAT_ID.")
         sys.exit(1)
 
-    url = f"https://api.telegram.org/bot{token}/sendMessage"
-    payload = {
-        "chat_id": chat_id,
-        "text": texto,
-        "parse_mode": "Markdown",
-        "disable_web_page_preview": True,
-    }
-    r = requests.post(url, data=payload, timeout=TIMEOUT_TELEGRAM)
-    if not r.ok:
-        print("Falha ao enviar para o Telegram:", r.text)
+    # Suporta um ou mais destinos, separados por vírgula. Cada destino pode ser:
+    # - um canal/grupo normal: "@canalthaitrader" ou "-1001234567890"
+    # - um TÓPICO dentro de um grupo com fórum ativado: "-1001234567890:45"
+    #   (o número depois dos dois-pontos é o message_thread_id do tópico)
+    # Exemplo combinando os dois: "@canalthaitrader,-1001234567890:45"
+    destinos_raw = [c.strip() for c in chat_ids_raw.split(",") if c.strip()]
+
+    algum_sucesso = False
+    for destino in destinos_raw:
+        if ":" in destino:
+            chat_id, thread_id = destino.split(":", 1)
+            chat_id = chat_id.strip()
+            thread_id = thread_id.strip()
+        else:
+            chat_id = destino
+            thread_id = None
+
+        url = f"https://api.telegram.org/bot{token}/sendMessage"
+        payload = {
+            "chat_id": chat_id,
+            "text": texto,
+            "parse_mode": "Markdown",
+            "disable_web_page_preview": True,
+        }
+        if thread_id:
+            payload["message_thread_id"] = thread_id
+
+        r = requests.post(url, data=payload, timeout=TIMEOUT_TELEGRAM)
+        if not r.ok:
+            print(f"Falha ao enviar para {destino}:", r.text)
+        else:
+            print(f"Mensagem enviada com sucesso para {destino}!")
+            algum_sucesso = True
+
+    if not algum_sucesso:
         sys.exit(1)
-    print("Mensagem enviada com sucesso!")
 
 
 if __name__ == "__main__":
