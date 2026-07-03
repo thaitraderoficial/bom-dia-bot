@@ -106,13 +106,17 @@ O resumo (nos parágrafos) deve conter: o que aconteceu, por que aconteceu, qual
 esperado, como isso afeta os mercados, e como isso pode impactar o mercado cripto (quando
 houver relação). Escreva de forma objetiva, sem textos longos, sem copiar matérias, sem opinião.
 
-REGRA FUNDAMENTAL — NUNCA REPETIR A MANCHETE ANTERIOR
+REGRA FUNDAMENTAL — NUNCA REPETIR A MANCHETE ANTERIOR (SEM EXCEÇÃO)
 {contexto_manchete_anterior}
-Se o assunto principal já tiver sido usado no panorama anterior:
-- procure um novo fato relevante ocorrido nas últimas 24 horas; ou
-- se o mesmo tema continuar sendo o principal assunto do mercado, escreva sobre um NOVO
-  DESDOBRAMENTO desse evento, com informação inédita, novos dados, novas declarações ou novos
-  impactos — nunca repita o mesmo título ou praticamente o mesmo texto.
+Isso é uma regra absoluta, sem exceção: mesmo que o mesmo assunto continue sendo, na sua
+avaliação, o mais relevante do mercado, você NÃO pode escrever sobre ele de novo enquanto ele
+for a manchete anterior registrada. Desça na lista de prioridades e escolha a próxima notícia
+mais relevante disponível (geopolítica, fluxo institucional, mercado de criptomoedas, ou
+qualquer outro fato relevante das últimas 24 horas) — sempre existe algo diferente para
+noticiar. Só volte a usar o mesmo assunto da manchete anterior se, e somente se, surgir uma
+atualização NOVA e SIGNIFICATIVA sobre ele (ex: um dado que antes era só estimativa e agora
+saiu confirmado, uma decisão que antes era esperada e agora foi anunciada) — nunca para repetir
+a mesma informação já divulgada.
 
 VALIDAÇÃO FINAL (antes de responder, confirme mentalmente)
 - Todos os dados pertencem ao dia atual e estão atualizados.
@@ -127,8 +131,10 @@ def montar_prompt_com_contexto(titulo_anterior, data_anterior):
     if titulo_anterior:
         contexto = (
             f'A manchete do panorama anterior (enviado em {data_anterior}) foi: '
-            f'"{titulo_anterior}". Não repita esse mesmo assunto como manchete de hoje, a menos '
-            "que seja para apresentar um novo desdobramento relevante, com informação inédita."
+            f'"{titulo_anterior}". É PROIBIDO usar esse mesmo assunto como manchete de hoje, '
+            "sem exceção, a não ser que exista uma atualização nova e significativa sobre ele "
+            "(não apenas repetir a mesma informação com outras palavras). Busque e escolha uma "
+            "notícia diferente."
         )
     else:
         contexto = "Não há panorama anterior registrado — escolha livremente a manchete de hoje."
