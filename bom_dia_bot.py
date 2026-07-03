@@ -5,8 +5,11 @@ para o Telegram, gerado com dados buscados em tempo real pela Claude.
 Arquitetura: a Claude devolve os dados em JSON (só números e texto puro, nada de
 formatação). O PYTHON monta o texto final e alinha as colunas de preço/variação
 usando fonte monoespaçada (bloco de código do Telegram) — isso garante alinhamento
-perfeito sempre, e também elimina qualquer risco de a IA "narrar o processo",
-porque a resposta dela vira só um dado estruturado, sem espaço para comentários.
+perfeito sempre, e também elimina qualquer risco de a IA "narrar o processo".
+
+Para nunca repetir a manchete do dia anterior, o script lê/grava um arquivo
+"ultima_manchete.json" dentro do próprio repositório (o workflow do GitHub Actions
+faz commit desse arquivo depois de cada execução bem-sucedida).
 
 Variáveis de ambiente necessárias (Secrets no GitHub):
 - TELEGRAM_BOT_TOKEN
@@ -23,45 +26,38 @@ from datetime import datetime, timezone, timedelta
 
 TIMEOUT_TELEGRAM = 20
 TIMEOUT_ANTHROPIC = 120
-
 INDISPONIVEL = "Dado indisponível no momento."
+ARQUIVO_ULTIMA_MANCHETE = "ultima_manchete.json"
 
 
 PANORAMA_SYSTEM_PROMPT = """\
-Você é o responsável por coletar os dados do PANORAMA DIÁRIO da ThaiTraderOficial.
-Sua prioridade é precisão, objetividade e atualização em tempo real.
+Você é responsável por coletar os dados do PANORAMA DIÁRIO da ThaiTraderOficial.
+Seu objetivo é entregar dados para um resumo profissional, limpo, objetivo, confiável e
+atualizado em tempo real.
 
 REGRAS OBRIGATÓRIAS
-- Busque todos os dados em tempo real antes de responder, usando a ferramenta de busca na web.
-- Nunca utilize informações em cache ou de dias anteriores.
+- Busque TODOS os dados em tempo real antes de responder, usando a ferramenta de busca na web.
+- Nunca utilize cache ou informações de dias anteriores.
 - Nunca invente dados. Nunca complete informações por inferência.
-- Se algum dado não puder ser confirmado, use exatamente a string "Dado indisponível no momento."
-  nos campos "valor" e null no campo "variacao" daquele item.
+- Caso algum dado não possa ser obtido, use exatamente a string "Dado indisponível no momento."
+  no campo "valor" e null no campo "variacao" daquele item específico.
 - Utilize preferencialmente fontes confiáveis como Reuters, Bloomberg, CNBC, Wall Street Journal,
   Financial Times, TradingView, CoinGecko, CoinMarketCap, CME, Investing e fontes oficiais dos
   indicadores econômicos.
-- Se existir um dado econômico importante divulgado no dia (Payroll, CPI, PPI, decisão de juros
-  etc.), ele deve obrigatoriamente ser a manchete principal, desde que confirmado por pelo menos
-  duas fontes confiáveis.
-- Se uma notícia não puder ser confirmada por pelo menos duas fontes confiáveis, descarte-a e
-  escolha a próxima mais relevante.
-- Jamais reutilize notícias de dias anteriores.
-- Antes de responder, revise todas as datas, números e horários: confirme que pertencem ao dia
-  de hoje. Descarte e busque de novo qualquer dado desatualizado ou não verificável.
 
 FORMATO DE RESPOSTA (OBRIGATÓRIO)
 Responda SOMENTE com um objeto JSON válido, sem nenhum texto antes ou depois, sem bloco de
-markdown (nada de ```json), sem comentário, sem explicação — só o JSON puro, pronto para ser
-processado por um programa. Isso é uma chamada de dados, não uma conversa: nenhum campo do JSON
-deve conter frases sobre o processo de busca, comentários, ou qualquer coisa além do dado puro
-em si.
+markdown (nada de ```json), sem comentário, sem explicação — só o JSON puro. Isso é uma chamada
+de dados, não uma conversa: nenhum campo deve conter frases sobre o processo de busca ("vou
+buscar", "pesquisando", "com base em", "aqui está", "dados coletados", "estou analisando", etc.)
+nem raciocínio — só o dado puro.
 
 Use exatamente este formato:
 
 {
   "cripto": [
     {"ticker": "BTC", "valor": "US$ 61.500", "variacao": "+3,19%"},
-    {"ticker": "ETH", "valor": "US$ 1.694", "variacao": "+6,00%"},
+    {"ticker": "ETH", "valor": "US$ 1.694", "variacao": "-1,42%"},
     {"ticker": "SOL", "valor": "US$ 80,71", "variacao": "+4,49%"},
     {"ticker": "XRP", "valor": "US$ 1,09", "variacao": "+3,88%"},
     {"ticker": "HYPE", "valor": "US$ 65,30", "variacao": "+2,49%"},
@@ -74,7 +70,7 @@ Use exatamente este formato:
   ],
   "energia": [
     {"nome": "Brent", "valor": "US$ 70,90", "variacao": "-2,00%"},
-    {"nome": "WTI", "valor": "US$ 68,25", "variacao": "-0,48%"},
+    {"nome": "WTI", "valor": "US$ 68,25", "variacao": "+0,48%"},
     {"nome": "Gás Natural", "valor": "US$ 3,18", "variacao": "-1,29%"}
   ],
   "metais": [
@@ -89,22 +85,54 @@ Use exatamente este formato:
   ]
 }
 
-Regras sobre os campos:
-- "valor": string só com o número/preço, sem emoji, sem seta, sem cor.
-- "variacao": string com sinal (+ ou -) e "%", sem emoji, sem cor. Use null se indisponível.
-- Se um dado estiver indisponível, use "valor": "Dado indisponível no momento." e "variacao": null
-  para aquele item específico — não descarte o item da lista, mantenha o ticker/nome.
+REGRAS SOBRE OS CAMPOS
+- "valor": string só com o número/preço, sem emoji, sem seta, sem cor, sem ponto ou caractere
+  sobrando no final (ex: nunca "US$ 1,09." — o certo é "US$ 1,09").
+- "variacao": string só com sinal (+ ou -) e "%", sem emoji, sem seta, sem cor. Use null se
+  indisponível.
 - "manchete_titulo": só o título, sem asteriscos, sem formatação.
-- "manchete_paragrafos": uma lista de strings, cada string é UM parágrafo (o programa vai
-  separar visualmente cada parágrafo com uma linha em branco). Divida por assunto: um parágrafo
-  para o que aconteceu, outro para o impacto esperado, e se houver relação, um terceiro sobre o
-  reflexo no mercado cripto. Cada parágrafo deve ser curto (1 a 3 frases).
-- Se quiser citar uma frase literal de alguém (ex: um dirigente do Fed), inclua a citação dentro
-  do parágrafo entre aspas normais — o programa vai aplicar o itálico automaticamente.
-- Escolha a manchete priorizando nesta ordem: 1) dados macroeconômicos (Payroll, CPI, PPI, PIB,
-  FOMC, Fed, BCE), 2) geopolítica relevante, 3) economia global, 4) fluxo institucional,
-  5) mercado de criptomoedas.
+- "manchete_paragrafos": lista de strings, cada uma é um parágrafo (o programa separa
+  visualmente cada parágrafo com linha em branco). Divida por assunto: o que aconteceu, o
+  impacto esperado, e (se houver relação) o reflexo no mercado cripto. Parágrafos curtos
+  (1 a 3 frases cada). Se citar uma frase literal de alguém, coloque entre aspas normais no
+  texto — o programa aplica o itálico automaticamente.
+
+MANCHETE DO DIA — CRITÉRIO DE ESCOLHA
+Escolha APENAS a notícia mais relevante das últimas 24 horas, nesta ordem de prioridade:
+1. Payroll, 2. CPI, 3. PPI, 4. Decisão de juros, 5. FOMC, 6. Federal Reserve, 7. BCE, 8. PIB,
+9. Outros dados macroeconômicos relevantes, 10. Geopolítica, 11. Fluxo institucional,
+12. Mercado de criptomoedas.
+O resumo (nos parágrafos) deve conter: o que aconteceu, por que aconteceu, qual o impacto
+esperado, como isso afeta os mercados, e como isso pode impactar o mercado cripto (quando
+houver relação). Escreva de forma objetiva, sem textos longos, sem copiar matérias, sem opinião.
+
+REGRA FUNDAMENTAL — NUNCA REPETIR A MANCHETE ANTERIOR
+{contexto_manchete_anterior}
+Se o assunto principal já tiver sido usado no panorama anterior:
+- procure um novo fato relevante ocorrido nas últimas 24 horas; ou
+- se o mesmo tema continuar sendo o principal assunto do mercado, escreva sobre um NOVO
+  DESDOBRAMENTO desse evento, com informação inédita, novos dados, novas declarações ou novos
+  impactos — nunca repita o mesmo título ou praticamente o mesmo texto.
+
+VALIDAÇÃO FINAL (antes de responder, confirme mentalmente)
+- Todos os dados pertencem ao dia atual e estão atualizados.
+- Nenhum dado foi inventado ou veio de cache.
+- Nenhum campo contém frase sobre o processo de busca.
+- A manchete NÃO é igual (nem quase igual) à do panorama anterior informado acima.
+Se qualquer validação falhar, descarte e refaça a busca antes de responder.
 """
+
+
+def montar_prompt_com_contexto(titulo_anterior, data_anterior):
+    if titulo_anterior:
+        contexto = (
+            f'A manchete do panorama anterior (enviado em {data_anterior}) foi: '
+            f'"{titulo_anterior}". Não repita esse mesmo assunto como manchete de hoje, a menos '
+            "que seja para apresentar um novo desdobramento relevante, com informação inédita."
+        )
+    else:
+        contexto = "Não há panorama anterior registrado — escolha livremente a manchete de hoje."
+    return PANORAMA_SYSTEM_PROMPT.replace("{contexto_manchete_anterior}", contexto)
 
 
 def chamar_claude_json(system_prompt, user_content, max_tokens):
@@ -132,9 +160,6 @@ def chamar_claude_json(system_prompt, user_content, max_tokens):
     data = r.json()
 
     blocos = data.get("content", [])
-
-    # Pega só os blocos de texto que vêm DEPOIS da última busca na web
-    # (ignora qualquer coisa que a Claude tenha escrito entre uma busca e outra).
     ultimo_indice_ferramenta = -1
     for i, bloco in enumerate(blocos):
         if bloco.get("type") in ("tool_use", "server_tool_use", "web_search_tool_result"):
@@ -148,8 +173,6 @@ def chamar_claude_json(system_prompt, user_content, max_tokens):
         todos_textos = [bloco["text"] for bloco in blocos if bloco.get("type") == "text"]
         texto_resultado = "\n".join(todos_textos).strip()
 
-    # Proteção extra: pega só o trecho entre a primeira "{" e a última "}",
-    # caso sobre algum texto solto antes/depois do JSON.
     inicio = texto_resultado.find("{")
     fim = texto_resultado.rfind("}")
     if inicio == -1 or fim == -1:
@@ -163,39 +186,62 @@ def chamar_claude_json(system_prompt, user_content, max_tokens):
 
 
 # ---------------------------------------------------------------------------
+# Memória da última manchete (evita repetição no dia seguinte)
+# ---------------------------------------------------------------------------
+
+def ler_ultima_manchete():
+    try:
+        with open(ARQUIVO_ULTIMA_MANCHETE, "r", encoding="utf-8") as f:
+            dados = json.load(f)
+        return dados.get("titulo"), dados.get("data")
+    except (FileNotFoundError, json.JSONDecodeError):
+        return None, None
+
+
+def salvar_ultima_manchete(titulo):
+    fuso_br = timezone(timedelta(hours=-3))
+    hoje = datetime.now(fuso_br).strftime("%d/%m/%Y")
+    try:
+        with open(ARQUIVO_ULTIMA_MANCHETE, "w", encoding="utf-8") as f:
+            json.dump({"titulo": titulo, "data": hoje}, f, ensure_ascii=False, indent=2)
+    except Exception as e:
+        print("Aviso: não foi possível salvar a última manchete:", e)
+
+
+# ---------------------------------------------------------------------------
 # Montagem do texto final (feita 100% em Python, garante alinhamento perfeito)
 # ---------------------------------------------------------------------------
 
 EMOJI_PATTERN = re.compile(
     "["
-    "\U0001F300-\U0001FAFF"  # símbolos, pictogramas, emojis diversos (inclui 🟢🔴)
-    "\U00002600-\U000027BF"  # símbolos diversos e dingbats
-    "\U0001F1E6-\U0001F1FF"  # bandeiras
-    "\U00002190-\U000021FF"  # setas
-    "\U00002B00-\U00002BFF"  # setas/símbolos extras
-    "\uFE0F"                  # seletor de variação de emoji
+    "\U0001F300-\U0001FAFF"
+    "\U00002600-\U000027BF"
+    "\U0001F1E6-\U0001F1FF"
+    "\U00002190-\U000021FF"
+    "\U00002B00-\U00002BFF"
+    "\uFE0F"
     "]+",
     flags=re.UNICODE,
 )
 
 
-def remover_emojis(texto):
+def limpar_valor(texto):
+    """Remove emoji e qualquer pontuação sobrando no final (ex: 'US$ 1,09.' -> 'US$ 1,09')."""
     if not texto:
         return texto
-    return EMOJI_PATTERN.sub("", str(texto)).strip()
+    texto = EMOJI_PATTERN.sub("", str(texto)).strip()
+    texto = re.sub(r"[.:]+$", "", texto).strip()
+    return texto
 
 
 def formatar_tabela(itens, chave_nome):
-    """Monta uma tabela alinhada (fonte monoespaçada) a partir de uma lista de
-    dicts com chave_nome / "valor" / "variacao". Remove qualquer emoji que a IA
-    tenha colocado por engano nos valores, garantindo que nunca apareça bolinha
-    colorida nem nenhum outro símbolo."""
     if not itens:
         return INDISPONIVEL
 
     for i in itens:
-        i["valor"] = remover_emojis(i.get("valor"))
-        i["variacao"] = remover_emojis(i.get("variacao"))
+        i["valor"] = limpar_valor(i.get("valor"))
+        i["variacao"] = limpar_valor(i.get("variacao"))
+        i[chave_nome] = limpar_valor(i.get(chave_nome))
 
     largura_nome = max(len(str(i.get(chave_nome, ""))) for i in itens)
     largura_valor = max(len(str(i.get("valor") or INDISPONIVEL)) for i in itens)
@@ -220,63 +266,69 @@ def formatar_manchete(dados):
     paragrafos = dados.get("manchete_paragrafos") or []
 
     if not titulo or not paragrafos:
-        return INDISPONIVEL
+        return INDISPONIVEL, None
 
-    # Aplica itálico em qualquer trecho entre aspas (citação literal)
     paragrafos_formatados = []
     for p in paragrafos:
         p_com_italico = re.sub(r'"([^"]+)"', r'_"\1"_', p)
         paragrafos_formatados.append(p_com_italico)
 
     corpo = "\n\n".join(paragrafos_formatados)
-    return f"*{titulo}*\n\n{corpo}"
+    return f"*{titulo}*\n\n{corpo}", titulo
 
 
 def montar_mensagem(dados):
     fuso_br = timezone(timedelta(hours=-3))
     agora = datetime.now(fuso_br)
-    data_hora = agora.strftime("%d/%m/%Y - %H:%M")
+    data_str = agora.strftime("%d/%m/%Y")
+    hora_str = agora.strftime("%H:%M")
+
+    texto_manchete, titulo_manchete = formatar_manchete(dados)
 
     partes = [
-        f"*PANORAMA | {data_hora}*",
+        f"*PANORAMA | {data_str} • {hora_str}*",
         "",
-        "*₿ MERCADO CRIPTO*",
+        "₿ *MERCADO CRIPTO*",
         f"```\n{formatar_tabela(dados.get('cripto', []), 'ticker')}\n```",
         "",
-        "*🌍 MACRO*",
+        "🌍 *MACRO*",
         f"```\n{formatar_tabela(dados.get('macro', []), 'nome')}\n```",
         "",
-        "*⚡ ENERGIA*",
+        "⚡ *PETRÓLEO E ENERGIA*",
         f"```\n{formatar_tabela(dados.get('energia', []), 'nome')}\n```",
         "",
-        "*🪙 METAIS*",
+        "🪙 *METAIS*",
         f"```\n{formatar_tabela(dados.get('metais', []), 'nome')}\n```",
         "",
         "",
-        "*📰 MANCHETE DO DIA*",
-        formatar_manchete(dados),
+        "📰 *MANCHETE DO DIA*",
+        texto_manchete,
     ]
-    return "\n".join(partes)
+    return "\n".join(partes), titulo_manchete
 
 
-def get_panorama():
+def gerar_panorama():
+    """Retorna (mensagem_pronta_para_telegram, titulo_da_manchete_ou_None)."""
     if not os.environ.get("ANTHROPIC_API_KEY"):
-        return "ERRO: ANTHROPIC_API_KEY não configurada."
+        return "ERRO: ANTHROPIC_API_KEY não configurada.", None
 
     fuso_br = timezone(timedelta(hours=-3))
     agora = datetime.now(fuso_br)
+
+    titulo_anterior, data_anterior = ler_ultima_manchete()
+    prompt_final = montar_prompt_com_contexto(titulo_anterior, data_anterior)
 
     try:
         user_content = (
             f"Agora são {agora.strftime('%d/%m/%Y %H:%M')} (horário de Brasília). "
             "Busque os dados de hoje, em tempo real, e responda só com o JSON no formato definido."
         )
-        dados = chamar_claude_json(PANORAMA_SYSTEM_PROMPT, user_content, max_tokens=2000)
+        dados = chamar_claude_json(prompt_final, user_content, max_tokens=2000)
         if not dados:
-            return "Não foi possível gerar o panorama de hoje (resposta inválida da IA)."
+            return "Não foi possível gerar o panorama de hoje (resposta inválida da IA).", None
         return montar_mensagem(dados)
     except Exception as e:
-        return f"Não foi possível gerar o panorama de hoje. Erro técnico: {e}"
+        return f"Não foi possível gerar o panorama de hoje. Erro técnico: {e}", None
 
 
 # ---------------------------------------------------------------------------
@@ -291,11 +343,6 @@ def enviar_telegram(texto):
         print("ERRO: defina as variáveis TELEGRAM_BOT_TOKEN e TELEGRAM_CHAT_ID.")
         sys.exit(1)
 
-    # Suporta um ou mais destinos, separados por vírgula. Cada destino pode ser:
-    # - um canal/grupo normal: "@canalthaitrader" ou "-1001234567890"
-    # - um TÓPICO dentro de um grupo com fórum ativado: "-1001234567890:45"
-    #   (o número depois dos dois-pontos é o message_thread_id do tópico)
-    # Exemplo combinando os dois: "@canalthaitrader,-1001234567890:45"
     destinos_raw = [c.strip() for c in chat_ids_raw.split(",") if c.strip()]
 
     algum_sucesso = False
@@ -330,6 +377,9 @@ def enviar_telegram(texto):
 
 
 if __name__ == "__main__":
-    mensagem = get_panorama()
+    mensagem, titulo_manchete = gerar_panorama()
     print(mensagem)  # aparece nos logs do GitHub Actions, útil para debug
     enviar_telegram(mensagem)
+
+    if titulo_manchete:
+        salvar_ultima_manchete(titulo_manchete)
